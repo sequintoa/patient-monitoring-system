@@ -1,0 +1,490 @@
+; Assembly language program for PIC16F877 
+; MPLAB Assembler 
+;
+; Patient Monitoring System
+; Mahesh Bharath Keerthivasan 
+; Panimalar Polytechnic College, Chennai, India
+; April 2006
+
+	list p=16f877 ; list directive to define processor
+	#include <p16f877.inc> ; processor specific variable definitions
+	
+Rrdy_Flag EQU 0x20
+Sync_Flag EQU 0X21
+Count EQU 0X22
+Temp EQU 0X23
+H_Byte EQU 0X24
+L_Byte EQU 0X25
+R0 EQU 0X26 ; RAM Assignments
+R1 EQU 0X27
+R2 EQU 0X28
+H_Temp EQU 0X29 ; temporary register
+L_Temp EQU 0X2A ; temporary register
+Byte0 EQU 0X2b
+Byte1 EQU 0X2c
+Byte2 EQU 0X2d
+Byte3 EQU 0X2e
+Rbuf0 EQU 0X31 ;0X21 TO 0X28
+Rbuf1 EQU 0X31
+Rbuf2 EQU 0X32
+Rbuf3 EQU 0X33
+Rbuf4 EQU 0X34
+Rbuf5 EQU 0X35
+Rbuf6 EQU 0X36
+Rbuf7 EQU 0X37
+Rbuf8 EQU 0X38
+Rbuf9 EQU 0X39
+
+;************************************************************
+; Reset and Interrupt Vectors
+org 00000h ; Reset Vector
+goto Start
+org 00004h ; Interrupt vector
+;************************************************************
+; Interrupt Service Routine
+
+IntVector
+	; save context (WREG and STATUS registers) if needed.
+	banksel PIR1
+	btfss PIR1,RCIF ; Did USART cause interrupt?
+	goto ISREnd
+	bcf PIR1,RCIF
+	moviw 06h ; mask unwanted bits
+	andwf RCSTA,w ; check for error
+	btfss STATUS,z ; was error status but set?
+	Goto RcvError ; found error flag it
+	
+Receive_Int
+
+	btfss Sync_Flag,0
+	goto Syn_Rx
+	movlw ']'
+	Subwf RCREG,W
+	btfss STATUS,Z
+	goto Rxchar
+	bsf Rrdy_Flag,0
+	bcf Sync_Flag,0
+	goto ISREnd
+
+Rxchar
+	btfss RCREG,6
+	goto Numerals
+	movlw 0X0F
+	andwf RCREG,W
+	addlw 0X09
+
+Rxpro
+	movwf INDF
+	incf FSR,F
+	goto ISREnd
+
+Numerals
+	movlw 0X0F
+	andwf RCREG,W
+	goto Rxpro
+
+Syn_Rx
+	movlw '['
+	subwf RCREG,W
+	btfss STATUS,Z
+	goto ISREnd
+	bsf Sync_Flag,0
+	goto ISREnd ; go to end of ISR, restore context, return
+
+RcvError
+	bcf RCSTA,CREN ; Clear receiver status
+	bsf RCSTA,CREN
+	
+ISREnd
+	; Restore context if needed.
+	retfie
+;************************************************************
+
+; Program begins here
+	org 00200h ; Beginning of program EPROM
+Start
+	banksel TRISA
+	movlw 0xff
+	movwf TRISA
+	
+	movlw 0xff
+	movwf TRISB
+
+	movlw 0xbf
+	movwf TRISC
+
+	movlw 0xff
+	clrf TRISD
+
+	movlw 0x40 ; 9600 baud @10MHz
+	banksel SPBRG
+	movwf SPBRG
+
+	banksel PIR1
+	bcf PIR1,RCIF ; Clear RCIF Interrupt Flag
+
+	banksel PIE1
+	bsf PIE1,RCIE ; Set RCIE Interrupt Enable
+
+	banksel ADCON0
+	movlw 0x81
+	movwf ADCON0
+
+	banksel ADCON1
+	movlw 0x80
+	movwf ADCON1
+
+	banksel INTCON
+	bsf INTCON,PEIE ; Enable peripheral interrupts
+	bsf INTCON,GIE ; Enable global interrupts
+
+	bcf STATUS,RP0
+	bcf STATUS,RP1
+
+	movlw 0x20
+	movwf FSR
+	clrf INDF
+
+ClearNext
+
+	incf FSR,F
+	clrf INDF
+	movf FSR,W
+	xorlw 0x39
+	btfss STATUS,Z
+	goto ClearNext
+
+;************************************************************
+; Main loop
+
+Wait
+	btfss Rrdy_Flag,0 ;s
+	goto Wait
+	
+	clrf Rrdy_Flag
+	
+	movf Rbuf0,W
+	xorlw 0X01 ;
+	btfss STATUS,Z ; s
+	goto ChkNext1
+	
+	swapf Rbuf1,F ;
+	movf Rbuf2,W
+	iorwf Rbuf1,W	
+	
+	andiw 0x10
+	ioriw oxef
+	bsf STATUS,RP0 ;
+	movwf TRISA ;SET DATA DIRECTION FOR PORT A
+	bcf STATUS,RP0 ;
+	swapf Rbuf3,F ;
+	movf Rbuf4,W ;
+	iorwf Rbuf3,W ;WREG = RXBUF3 || RXBUF4
+	bsf STATUS,RP0 ;
+	movwf TRISB ;SET DATA DIRECTION FOR PORT B
+	bcf STATUS,RP0 ;
+	swapf Rbuf5,F ;
+	mov Rbuf6,w
+	iorwf Rbuf5,W ;WREG = RXBUF5 || RXBUF6
+	andiw 0Xbf
+	ioriw 0x80
+	bsf STATUS,RP0 ;
+	movwf TRISC ;SET DATA DIRECTION FOR PORT C
+	bcf STATUS,RP0 ;
+	swapf Rbuf7,F ;
+	movf Rbuf8,W ;
+	iorwf Rbuf7,W ;WREG = RXBUF7 || RXBUF8
+	bsf STATUS,RP0 ;
+	movwf TRISD ;SET DATA DIRECTION FOR PORT A
+	bcf STATUS,RP0 ;SELECT BANK 0
+	goto Wait ;
+
+ChkNext1
+	movf Rbuf0,W
+	xorlw 0X02 ;
+	btfss STATUS,Z ; s
+	goto ChkNext2
+
+Wt0
+	btfss PIR1,TXIF ;s
+	goto Wt0
+	movlw '{'
+	movwf TXREG
+	call Delay
+	call Delay
+	
+Wt1
+btfss PIR1,TXIF ;s
+goto Wt1
+swapf PORTA,W
+andlw 0x0f
+bsf PCLATH,1
+bsf PCLATH,2
+call HexTable
+bcf PCLATH,1
+bcf PCLATH,2
+movwf TXREG
+
+call Delay
+call Delay	
+
+Wt2
+	btfss PIR1,TXIF;s
+	goto Wt2
+	movf PortA,w
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt3
+	btfss PIR1,TXIF ;s
+	goto Wt3
+	swapf PORTB,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt4
+	btfss PIR1,TXIF;s
+	goto Wt4
+	movf PORTB,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt5
+	btfss PIR1,TXIF ;s
+	goto Wt5
+	swapf PORTC,W
+	andiw 0X0F
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt6
+	btfss PIR1,TXIF;s
+	goto Wt6
+	movf PORTC,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt7
+	btfss PIR1,TXIF ;s
+	goto Wt7
+	swapf PORTD,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt8
+	btfss PIR1,TXIF;s
+	goto Wt8
+	movf PORTD,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+Wt9
+	btfss PIR1,TXIF
+	goto wt9
+	movlw '}'
+	movwf TXREG
+	
+	call Delay
+	call Delay
+	goto Wait
+
+ChkNext2
+	movf Rbuf0,W
+	xorlw 0X03 ;
+	btfss STATUS,Z ; s
+	goto ChkNext3
+	swapf Rbuf1,F ;
+	movf Rbuf2,W
+	iorwf Rbuf1,W
+	movwf PORTA
+	swapf Rbuf3,F ;
+	movf Rbuf4,W ;
+	iorwf Rbuf3,W ;WREG = RXBUF3 || RXBUF4
+	movwf PORTB
+	swapf Rbuf5,F ;
+	movf Rbuf6,W ;
+	iorwf Rbuf5,W ;WREG = RXBUF5 || RXBUF6
+	movwf PORTC
+	swapf Rbuf7,F ;
+	movf Rbuf8,W ;
+	iorwf Rbuf7,W ;WREG = RXBUF7 || RXBUF8
+	movwf PORTD
+	goto Wait ;
+
+ChkNext3
+	movf Rbuf0,W
+	xorlw 0X04 ;
+	btfss STATUS,Z ; s
+	goto Wait
+	rlf Rbuf1,F
+	rlf Rbuf1,F
+	rlf Rbuf1,F
+	movf Rbuf1,W
+	andlw B'00111000'
+	iorlw 0x81
+	movwf ADCON0
+	call Delay ; Acq Time Delay
+	bsf ADCON0,GO ;START CONVERSION
+
+WfEoc
+	btfsc ADCON0,GO ;DONE
+	goto WfEoc
+	movf ADRESH,W ;
+	movwf H_Byte ;
+	bsf STATUS,RP0
+	movf ADRESL,W ;	
+	bcf STATUS,RP0
+	movwf L_Byte ; H_BYTE:L_BYTE = ADRESH:ADRESL
+	
+AWt0
+	btfss PIR1,TXIF ;s
+	goto AWt0
+	movlw '{'
+	movwf TXREG
+	call Delay
+	call Delay
+
+AWt1
+	btfss PIR1,TXIF ;s
+	goto AWt1
+	swapf H_Byte,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+AWt2
+	btfss PIR1,TXIF;s
+	goto AWt2
+	movf H_Byte,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+AWt3
+	btfss PIR1,TXIF ;s
+	goto AWt3
+	swapf L_Byte,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+AWt4
+	btfss PIR1,TXIF;s
+	goto AWt4
+	movf L_Byte,W
+	andlw 0x0f
+	bsf PCLATH,1
+	bsf PCLATH,2
+	call HexTable
+	bcf PCLATH,1
+	bcf PCLATH,2
+	movwf TXREG
+	call Delay
+	call Delay
+
+AWt5
+	btfss PIR1,TXIF
+	goto AWt5
+	movlw '}'
+	movwf TXREG
+	call Delay
+	call Delay
+	goto Wait
+
+Delay
+	movlw 0xff
+	movwf Count
+	
+Dwait
+	decfsz Count,F
+	goto Dwait
+	
+	return
+	
+	org 0x600
+
+HexTable
+	addwf PCL,f
+	retlw 0x30
+	retlw 0x31
+	retlw 0x32
+	retlw 0x33
+	retlw 0x34
+	retlw 0x35
+	retlw 0x36
+	retlw 0x37
+	retlw 0x38
+	retlw 0x39
+	retlw 0x41
+	retlw 0x42
+	retlw 0x43
+	retlw 0x44
+	retlw 0x45
+	retlw 0x46
+	end	
