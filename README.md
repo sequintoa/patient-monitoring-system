@@ -1,7 +1,7 @@
 # PIC 16F877 based Patient Monitoring System 
 
 ### Mahesh Bharath Keerthivasan
-#### Developed as a Senior Design Project, 2006
+#### Senior Design Project, Diploma in Electronics and Communication Engineering, 2006
 
 
 - Embedded system built using PIC 16F877 micro-controller to interface with sensors monitoring patient vitals. 
